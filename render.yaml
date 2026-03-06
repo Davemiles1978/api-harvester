@@ -32,10 +32,10 @@ services:
           name: dmai-harvester-db
           property: connectionString
       - key: ENCRYPTION_KEY
-        sync: false  # Will set manually same as harvester
+        sync: false  # Will set manually
 
   # PostgreSQL database - using Render's managed PostgreSQL
-  - type: postgres
+  - type: postgresql  # Changed from 'postgres' to 'postgresql'
     name: dmai-harvester-db
     plan: free
     databaseName: harvester
