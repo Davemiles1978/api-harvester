@@ -8,14 +8,8 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python harvester.py
     envVars:
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: dmai-redis
-          property: connectionString
       - key: DATABASE_URL
-        fromService:
-          type: pserv
+        fromDatabase:
           name: dmai-harvester-db
           property: connectionString
       - key: ENCRYPTION_KEY
@@ -34,34 +28,21 @@ services:
     startCommand: python validator.py
     envVars:
       - key: DATABASE_URL
-        fromService:
-          type: pserv
+        fromDatabase:
           name: dmai-harvester-db
           property: connectionString
       - key: ENCRYPTION_KEY
-        fromService:
-          type: worker
-          name: api-harvester
-          property: env  # This shares the ENCRYPTION_KEY from the harvester
-
-  # Redis for deduplication
-  - type: redis
-    name: dmai-redis
-    plan: free
-    maxmemoryPolicy: allkeys-lru
-    ipAllowList: []  # Empty list means private network only
+        fromEnvVar:
+          name: ENCRYPTION_KEY
+          fromService: api-harvester
 
   # PostgreSQL database
   - type: pserv
     name: dmai-harvester-db
     runtime: image
+    plan: free
     image:
-      url: postgres:15
-    plan: starter
-    disk:
-      name: data
-      mountPath: /var/lib/postgresql/data
-      sizeGB: 5
+      url: postgres:15-alpine
     envVars:
       - key: POSTGRES_DB
         value: harvester
@@ -69,15 +50,7 @@ services:
         value: dmai
       - key: POSTGRES_PASSWORD
         generateValue: true
-
-  # Persistent disk (mounted to harvester)
-  - type: pserv
-    name: dmai-key-storage
-    runtime: image
-    image:
-      url: alpine:latest
-    plan: free
     disk:
-      name: keys
-      mountPath: /storage
+      name: data
+      mountPath: /var/lib/postgresql/data
       sizeGB: 1
