@@ -8,14 +8,14 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python harvester.py
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: dmai-harvester-db
-          property: connectionString
       - key: ENCRYPTION_KEY
         generateValue: true
       - key: GITHUB_TOKEN
         sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dmai-harvester-db
+          property: connectionString
 
   # Validator - runs hourly
   - type: cron
@@ -32,25 +32,11 @@ services:
           name: dmai-harvester-db
           property: connectionString
       - key: ENCRYPTION_KEY
-        fromEnvVar:
-          name: ENCRYPTION_KEY
-          fromService: api-harvester
+        sync: false  # Will set manually same as harvester
 
-  # PostgreSQL database
-  - type: pserv
+  # PostgreSQL database - using Render's managed PostgreSQL
+  - type: postgres
     name: dmai-harvester-db
-    runtime: image
     plan: free
-    image:
-      url: postgres:15-alpine
-    envVars:
-      - key: POSTGRES_DB
-        value: harvester
-      - key: POSTGRES_USER
-        value: dmai
-      - key: POSTGRES_PASSWORD
-        generateValue: true
-    disk:
-      name: data
-      mountPath: /var/lib/postgresql/data
-      sizeGB: 1
+    databaseName: harvester
+    user: dmai
