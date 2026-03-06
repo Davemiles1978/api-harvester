@@ -1,0 +1,77 @@
+services:
+  # Main harvester - runs 24/7
+  - type: worker
+    name: api-harvester
+    runtime: python
+    repo: https://github.com/Davemiles1978/api-harvester
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: python harvester.py
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: dmai-redis
+          property: connectionString
+      - key: DATABASE_URL
+        fromService:
+          type: pserv
+          name: dmai-harvester-db
+          property: connectionString
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: GITHUB_TOKEN
+        sync: false  # Set manually
+
+  # Validator - runs hourly
+  - type: cron
+    name: api-validator
+    runtime: python
+    repo: https://github.com/Davemiles1978/api-harvester
+    branch: main
+    schedule: "0 * * * *"  # Hourly
+    buildCommand: pip install -r requirements.txt
+    startCommand: python validator.py
+    envVars:
+      - key: DATABASE_URL
+        fromService:
+          type: pserv
+          name: dmai-harvester-db
+          property: connectionString
+      - key: ENCRYPTION_KEY
+        fromService:
+          type: worker
+          name: api-harvester
+          property: envValue  # Share same key
+
+  # Redis for deduplication
+  - type: redis
+    name: dmai-redis
+    plan: free  # Upgrade later if needed
+    maxmemoryPolicy: allkeys-lru
+
+  # PostgreSQL database
+  - type: pserv
+    name: dmai-harvester-db
+    runtime: postgres
+    plan: starter  # $7/month - includes 1GB storage
+    disk:
+      name: data
+      sizeGB: 5
+    envVars:
+      - key: POSTGRES_DB
+        value: harvester
+      - key: POSTGRES_USER
+        value: dmai
+      - key: POSTGRES_PASSWORD
+        generateValue: true
+
+  # Persistent disk for encrypted keys
+  - type: pserv
+    name: dmai-key-storage
+    runtime: static  # Just a disk mount
+    plan: free
+    disk:
+      name: keys
+      mountPath: /storage
+      sizeGB: 5

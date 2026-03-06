@@ -1,0 +1,9 @@
+*.pyc
+__pycache__/
+.env
+*.log
+storage/encrypted_keys.json
+storage/key_metadata.json
+.DS_Store
+venv/
+env/

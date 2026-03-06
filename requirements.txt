@@ -1,0 +1,18 @@
+# Core
+requests==2.31.0
+python-dotenv==1.0.0
+psycopg2-binary==2.9.9
+redis==5.0.1
+cryptography==42.0.5
+
+# Scraping
+beautifulsoup4==4.12.2
+PyGithub==2.1.1
+selenium==4.18.1
+aiohttp==3.9.3
+
+# Validation
+openai==1.12.0
+anthropic==0.18.1
+google-generativeai==0.3.2
+groq==0.4.2
