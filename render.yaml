@@ -12,6 +12,14 @@ services:
         generateValue: true
       - key: GITHUB_TOKEN
         sync: false
+    buildFilter:
+      paths:
+      - render.yaml
+      - requirements.txt
+      - harvester.py
+      - config.py
+      - storage/**/*.py
+      - scrapers/**/*.py
 
   # Validator - runs hourly
   - type: cron
@@ -25,3 +33,18 @@ services:
     envVars:
       - key: ENCRYPTION_KEY
         sync: false
+    buildFilter:
+      paths:
+      - render.yaml
+      - requirements.txt
+      - validator.py
+      - config.py
+      - storage/**/*.py
+
+  # PostgreSQL database
+  - type: db
+    name: dmai-harvester-db
+    plan: free
+    databaseName: harvester
+    user: dmai
+    ipAllowList: []
