@@ -21,7 +21,7 @@ services:
       - key: ENCRYPTION_KEY
         generateValue: true
       - key: GITHUB_TOKEN
-        sync: false  # Set manually
+        sync: false
 
   # Validator - runs hourly
   - type: cron
@@ -29,7 +29,7 @@ services:
     runtime: python
     repo: https://github.com/Davemiles1978/api-harvester
     branch: main
-    schedule: "0 * * * *"  # Hourly
+    schedule: "0 * * * *"
     buildCommand: pip install -r requirements.txt
     startCommand: python validator.py
     envVars:
@@ -42,21 +42,25 @@ services:
         fromService:
           type: worker
           name: api-harvester
-          property: envValue  # Share same key
+          property: env  # This shares the ENCRYPTION_KEY from the harvester
 
   # Redis for deduplication
   - type: redis
     name: dmai-redis
-    plan: free  # Upgrade later if needed
+    plan: free
     maxmemoryPolicy: allkeys-lru
+    ipAllowList: []  # Empty list means private network only
 
   # PostgreSQL database
   - type: pserv
     name: dmai-harvester-db
-    runtime: postgres
-    plan: starter  # $7/month - includes 1GB storage
+    runtime: image
+    image:
+      url: postgres:15
+    plan: starter
     disk:
       name: data
+      mountPath: /var/lib/postgresql/data
       sizeGB: 5
     envVars:
       - key: POSTGRES_DB
@@ -66,12 +70,14 @@ services:
       - key: POSTGRES_PASSWORD
         generateValue: true
 
-  # Persistent disk for encrypted keys
+  # Persistent disk (mounted to harvester)
   - type: pserv
     name: dmai-key-storage
-    runtime: static  # Just a disk mount
+    runtime: image
+    image:
+      url: alpine:latest
     plan: free
     disk:
       name: keys
       mountPath: /storage
-      sizeGB: 5
+      sizeGB: 1

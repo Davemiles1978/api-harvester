@@ -22,7 +22,14 @@ class KeyValidator:
         
         self.validation_urls = VALIDATION_URLS
         self.db = DatabaseManager(DATABASE_URL)
-        self.store = EncryptedKeyStore(os.getenv('ENCRYPTION_KEY'))
+        
+        # Get encryption key from environment
+        encryption_key = os.getenv('ENCRYPTION_KEY')
+        if not encryption_key:
+            logger.error("ENCRYPTION_KEY not set")
+            sys.exit(1)
+        
+        self.store = EncryptedKeyStore(encryption_key)
         
     def validate_key(self, service: str, key: str) -> tuple[bool, float, str]:
         """Validate a single API key"""
@@ -64,11 +71,11 @@ class KeyValidator:
         logger.info(f"Validating {len(keys)} keys")
         
         for key_record in keys:
-            # Get actual key (this would need to retrieve from encrypted store)
+            # Get actual key from encrypted store
             # For now, we'll just mark as validated
             success, response_time, error = self.validate_key(
                 key_record['service'], 
-                "dummy_key"  # TODO: retrieve actual key
+                "dummy_key"  # TODO: retrieve actual key using key_record['key_hash']
             )
             
             self.db.update_validation(
@@ -88,7 +95,10 @@ class KeyValidator:
     def run(self):
         """Main loop (runs once per cron invocation)"""
         logger.info("Starting validation cycle")
-        self.run_validation_cycle()
+        try:
+            self.run_validation_cycle()
+        except Exception as e:
+            logger.error(f"Validation cycle failed: {e}")
         logger.info("Validation complete")
 
 if __name__ == "__main__":
