@@ -73,8 +73,21 @@ class Harvester:
             raise
     
     def handle_shutdown(self, signum, frame):
-        """Graceful shutdown"""
-        logger.info(f"Shutdown signal received: {signum}")
+        """Graceful shutdown with detailed logging"""
+        try:
+            signal_name = signal.Signals(signum).name
+        except:
+            signal_name = f"UNKNOWN({signum})"
+        
+        logger.info(f"🚨 SHUTDOWN SIGNAL RECEIVED: {signum} ({signal_name})")
+        logger.info("Stack trace at shutdown:")
+        stack_lines = traceback.format_stack(frame)
+        for line in stack_lines:
+            for subline in line.split('\n'):
+                if subline.strip():
+                    logger.info(f"  {subline.strip()}")
+        
+        logger.info(f"Current cycle: #{self.cycle_count}")
         logger.info("Shutting down harvester...")
         self.running = False
     
@@ -179,7 +192,7 @@ class Harvester:
                                 api_data = {
                                     'name': api_name,
                                     'description': api_desc,
-                                    'url': api_url,
+                                    'url': f"https://github.com/public-apis/public-apis#{api_name.lower().replace(' ', '-')}",
                                     'source': 'public-apis-github',
                                     'harvested_at': datetime.now().isoformat()
                                 }
@@ -313,7 +326,7 @@ class Harvester:
                 self.run_cycle()
                 cycle_duration = time.time() - cycle_start
                 
-                logger.info(f"Cycle took {cycle_duration:.2f} seconds")
+                logger.info(f"Cycle #{self.cycle_count} took {cycle_duration:.2f} seconds")
                 
                 # Sleep between cycles (with check for shutdown)
                 sleep_interval = 60  # 60 seconds between cycles
