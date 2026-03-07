@@ -8,6 +8,7 @@ import time
 import logging
 import signal
 import redis
+import requests
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -66,21 +67,162 @@ class Harvester:
         logger.info("Shutting down harvester...")
         self.running = False
     
+    def scrape_apis_guru(self):
+        """Scrape APIs from APIS.Guru directory"""
+        try:
+            logger.info("Scraping APIS.Guru...")
+            response = requests.get("https://api.apis.guru/v2/list.json", timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                api_count = len(data)
+                logger.info(f"Found {api_count} APIs from APIS.Guru")
+                
+                # Process and save to database
+                for api_name, api_info in list(data.items())[:100]:  # Limit to first 100
+                    try:
+                        # Extract API details
+                        api_data = {
+                            'name': api_name,
+                            'title': api_info.get('info', {}).get('title', ''),
+                            'description': api_info.get('info', {}).get('description', ''),
+                            'version': api_info.get('info', {}).get('version', ''),
+                            'url': f"https://api.apis.guru/v2/{api_name}.json",
+                            'source': 'apis.guru',
+                            'harvested_at': datetime.now().isoformat()
+                        }
+                        
+                        # Save to database
+                        self.db.save_api(api_data)
+                        logger.debug(f"Saved API: {api_name}")
+                    except Exception as e:
+                        logger.error(f"Error saving API {api_name}: {e}")
+                
+                return api_count
+        except Exception as e:
+            logger.error(f"APIS.Guru scraping error: {e}")
+        return 0
+    
+    def scrape_public_apis_github(self):
+        """Scrape APIs from public-apis GitHub repo"""
+        try:
+            logger.info("Scraping public-apis GitHub repo...")
+            response = requests.get(
+                "https://api.github.com/repos/public-apis/public-apis/contents/README.md",
+                headers={"Accept": "application/vnd.github.v3.raw"},
+                timeout=10
+            )
+            if response.status_code == 200:
+                content = response.text
+                logger.info(f"Fetched public-apis README ({len(content)} bytes)")
+                
+                # Simple parsing for API entries (look for markdown table rows)
+                lines = content.split('\n')
+                api_count = 0
+                
+                for line in lines:
+                    if '|' in line and '| API |' not in line and '| --- |' not in line:
+                        parts = line.split('|')
+                        if len(parts) >= 4:
+                            api_name = parts[1].strip()
+                            api_desc = parts[2].strip()
+                            api_url = parts[3].strip() if len(parts) > 3 else ''
+                            
+                            if api_name and api_name != 'API' and not api_name.startswith('['):
+                                api_data = {
+                                    'name': api_name,
+                                    'description': api_desc,
+                                    'url': api_url,
+                                    'source': 'public-apis-github',
+                                    'harvested_at': datetime.now().isoformat()
+                                }
+                                
+                                # Save to database
+                                self.db.save_api(api_data)
+                                api_count += 1
+                
+                logger.info(f"Found {api_count} APIs from public-apis repo")
+                return api_count
+        except Exception as e:
+            logger.error(f"Public APIs scraping error: {e}")
+        return 0
+    
+    def scrape_programmable_web(self):
+        """Scrape APIs from ProgrammableWeb (if accessible)"""
+        try:
+            logger.info("Scraping ProgrammableWeb...")
+            response = requests.get(
+                "https://www.programmableweb.com/apis/directory",
+                timeout=10,
+                headers={'User-Agent': 'Mozilla/5.0 (compatible; DMAI-Harvester/1.0)'}
+            )
+            if response.status_code == 200:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                # Look for API entries (adjust selectors based on actual HTML)
+                api_entries = soup.select('.api-entry, .views-row, .api-item')
+                api_count = 0
+                
+                for entry in api_entries[:50]:  # Limit to first 50
+                    try:
+                        title_elem = entry.select_one('.api-title a, h3 a')
+                        desc_elem = entry.select_one('.api-description, .description')
+                        
+                        if title_elem:
+                            api_data = {
+                                'name': title_elem.text.strip(),
+                                'url': title_elem.get('href', ''),
+                                'description': desc_elem.text.strip() if desc_elem else '',
+                                'source': 'programmableweb',
+                                'harvested_at': datetime.now().isoformat()
+                            }
+                            
+                            self.db.save_api(api_data)
+                            api_count += 1
+                    except Exception as e:
+                        logger.error(f"Error parsing ProgrammableWeb entry: {e}")
+                
+                logger.info(f"Found {api_count} APIs from ProgrammableWeb")
+                return api_count
+        except Exception as e:
+            logger.error(f"ProgrammableWeb scraping error: {e}")
+        return 0
+    
     def run_cycle(self):
         """Run one harvesting cycle"""
         logger.info("Starting harvesting cycle")
+        total_apis = 0
         
-        # GitHub scraping
+        # GitHub scraping (YOUR EXISTING CODE)
         if self.github_scraper:
             try:
-                self.github_scraper.search_code()
+                github_count = self.github_scraper.search_code()
+                total_apis += github_count
+                logger.info(f"GitHub scraping found {github_count} APIs")
             except Exception as e:
                 logger.error(f"GitHub scraping error: {e}")
         
-        # Pastebin scraping (TODO)
-        # Public code scraping (TODO)
+        # NEW: APIS.Guru scraping
+        apis_guru_count = self.scrape_apis_guru()
+        total_apis += apis_guru_count
         
-        logger.info("Harvesting cycle complete")
+        # NEW: Public APIs GitHub repo
+        public_apis_count = self.scrape_public_apis_github()
+        total_apis += public_apis_count
+        
+        # NEW: ProgrammableWeb scraping (commented out by default)
+        # programmable_count = self.scrape_programmable_web()
+        # total_apis += programmable_count
+        
+        logger.info(f"Harvesting cycle complete. Total APIs found: {total_apis}")
+        
+        # NEW: Update metrics in Redis
+        try:
+            self.redis.set('harvester:last_run', datetime.now().isoformat())
+            self.redis.set('harvester:total_apis', total_apis)
+            self.redis.incr('harvester:cycle_count')
+        except Exception as e:
+            logger.error(f"Failed to update Redis metrics: {e}")
     
     def run(self):
         """Main loop"""
