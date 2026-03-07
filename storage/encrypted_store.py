@@ -1,102 +1,81 @@
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
-import base64
 import os
 import json
-from typing import Dict, Optional
+import base64
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.backends import default_backend
 
 class EncryptedKeyStore:
-    def __init__(self, encryption_key: str):
-        """Initialize encrypted store with master key"""
-        if not encryption_key:
-            raise ValueError("ENCRYPTION_KEY must be set")
+    def __init__(self, key_file='keys/encrypted_keys.json', salt_file='keys/salt.key'):
+        self.key_file = key_file
+        self.salt_file = salt_file
+        self.backend = default_backend()
+        self.salt = self._load_or_create_salt()
+        self.cipher = self._create_cipher()
+        self.keys = self._load_keys()
+    
+    def _load_or_create_salt(self):
+        """Load existing salt or create a new one"""
+        os.makedirs('keys', exist_ok=True)
+        if os.path.exists(self.salt_file):
+            with open(self.salt_file, 'rb') as f:
+                return f.read()
+        else:
+            salt = os.urandom(16)
+            with open(self.salt_file, 'wb') as f:
+                f.write(salt)
+            return salt
+    
+    def _create_cipher(self, password=None):
+        """Create Fernet cipher from environment password"""
+        if password is None:
+            password = os.getenv('ENCRYPTION_KEY', 'default-key-change-me').encode()
         
-        # Derive Fernet key from master key
-        kdf = PBKDF2(
+        kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,
-            salt=b'dmai-salt-2026',  # Fixed salt for consistency
-            iterations=480000,
+            salt=self.salt,
+            iterations=100000,
+            backend=self.backend
         )
-        key = base64.urlsafe_b64encode(kdf.derive(encryption_key.encode()))
-        self.cipher = Fernet(key)
-        self.storage_file = "storage/encrypted_keys.json"
-        self._ensure_storage()
+        key = base64.urlsafe_b64encode(kdf.derive(password))
+        return Fernet(key)
     
-    def _ensure_storage(self):
-        """Ensure storage file exists"""
-        if not os.path.exists(self.storage_file):
-            with open(self.storage_file, 'w') as f:
-                json.dump({}, f)
+    def _load_keys(self):
+        """Load encrypted keys from file"""
+        if os.path.exists(self.key_file):
+            with open(self.key_file, 'r') as f:
+                return json.load(f)
+        return {}
     
-    def _load(self) -> Dict:
-        """Load and decrypt all keys"""
-        with open(self.storage_file, 'r') as f:
-            encrypted_data = json.load(f)
-        
-        decrypted = {}
-        for key_id, encrypted_value in encrypted_data.items():
-            try:
-                decrypted[key_id] = self.cipher.decrypt(
-                    encrypted_value.encode()
-                ).decode()
-            except:
-                continue  # Skip corrupted entries
-        return decrypted
+    def _save_keys(self):
+        """Save encrypted keys to file"""
+        os.makedirs(os.path.dirname(self.key_file), exist_ok=True)
+        with open(self.key_file, 'w') as f:
+            json.dump(self.keys, f, indent=2)
     
-    def _save(self, data: Dict):
-        """Encrypt and save all keys"""
-        encrypted = {}
-        for key_id, value in data.items():
-            encrypted[key_id] = self.cipher.encrypt(
-                value.encode()
-            ).decode()
-        
-        with open(self.storage_file, 'w') as f:
-            json.dump(encrypted, f, indent=2)
+    def add_key(self, service, api_key):
+        """Encrypt and store an API key"""
+        encrypted = self.cipher.encrypt(api_key.encode()).decode()
+        self.keys[service] = encrypted
+        self._save_keys()
     
-    def store_key(self, key_id: str, api_key: str, service: str, metadata: Dict = None):
-        """Store an encrypted API key"""
-        data = self._load()
-        data[key_id] = api_key
-        
-        # Also store metadata separately
-        metadata_file = "storage/key_metadata.json"
-        if os.path.exists(metadata_file):
-            with open(metadata_file, 'r') as f:
-                all_metadata = json.load(f)
-        else:
-            all_metadata = {}
-        
-        all_metadata[key_id] = {
-            'service': service,
-            'discovered_at': metadata.get('discovered_at', ''),
-            'source': metadata.get('source', ''),
-            'validated': metadata.get('validated', False),
-            'last_validated': metadata.get('last_validated', ''),
-        }
-        
-        with open(metadata_file, 'w') as f:
-            json.dump(all_metadata, f, indent=2)
-        
-        self._save(data)
+    def get_key(self, service):
+        """Retrieve and decrypt an API key"""
+        if service not in self.keys:
+            return None
+        encrypted = self.keys[service].encode()
+        return self.cipher.decrypt(encrypted).decode()
     
-    def get_key(self, key_id: str) -> Optional[str]:
-        """Retrieve a decrypted API key"""
-        data = self._load()
-        return data.get(key_id)
+    def list_services(self):
+        """List all services with stored keys"""
+        return list(self.keys.keys())
     
-    def list_keys(self, service: Optional[str] = None) -> Dict:
-        """List all keys (metadata only, not actual keys)"""
-        metadata_file = "storage/key_metadata.json"
-        if not os.path.exists(metadata_file):
-            return {}
-        
-        with open(metadata_file, 'r') as f:
-            all_metadata = json.load(f)
-        
-        if service:
-            return {k: v for k, v in all_metadata.items() 
-                   if v.get('service') == service}
-        return all_metadata
+    def delete_key(self, service):
+        """Delete a key from storage"""
+        if service in self.keys:
+            del self.keys[service]
+            self._save_keys()
+            return True
+        return False
